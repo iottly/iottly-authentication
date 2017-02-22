@@ -1,0 +1,6 @@
+-r requirements.txt
+mock==2.0.0
+mongomock==3.7.0
+pbr==1.10.0
+sentinels==1.0.0
+six==1.10.0
