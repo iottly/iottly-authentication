@@ -19,6 +19,8 @@ TOKEN_RE = re.compile(r'bearer (.{32})$', re.IGNORECASE)
 # TODO:
 # move username check to a decorator
 # add active user decorator
+# token vanno sui projects
+# per scrivere su mongo forse passano per api
 
 class ApiHandler(web.RequestHandler):
     COOKIE_NAME = 'iottly-session-id'
