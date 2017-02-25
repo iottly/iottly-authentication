@@ -9,10 +9,18 @@ from bson.objectid import ObjectId
 class Database(object):
     def __init__(self, settings):
         if settings['MONGO_DB_MOCK']:
-            db = mongomock.MongoClient().db
+            self.db = mongomock.MongoClient()
         else:
-            db = motor.MotorClient(settings['MONGO_DB_URL'])[settings['MONGO_DB_NAME']]
+            self.db = motor.MotorClient(settings['MONGO_DB_URL'])[settings['MONGO_DB_NAME']]
 
+    @gen.coroutine
     def insert(self, collection_name, data):
+        # FIXME: TypeError: 'Collection' object is not callable
         new_id = yield self.db[collection_name].insert_one(data)
         raise gen.Return(new_id)
+
+    @gen.coroutine
+    def get(self, collection_name, condition):
+        # FIXME: TypeError: 'Collection' object is not callable
+        result = yield self.db[collection_name].find_one(condition)
+        raise gen.Return(result)

@@ -1,6 +1,9 @@
 import json
 
+from unittest import TestCase
+
 from iottly_authentication.main import make_app
+from iottly_authentication.hashers import make_password, check_password
 
 from tornado.testing import AsyncHTTPTestCase
 
@@ -52,25 +55,40 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
         self.assertEqual(response.code, 409)
 
     def test_get_user_data(self):
-        data = {
-        }
-        response = self.fetch('/users/myusername', method='GET', body=json.dumps(data))
+        response = self.fetch('/users/myusername', method='GET')
         self.assertEqual(response.code, 200)
+        self.assertIn('myusername', response.body)
 
     def test_update_user_data(self):
         data = {
+            'full_name': 'my new full name'
         }
         response = self.fetch('/users/myusername', method='PUT', body=json.dumps(data))
         self.assertEqual(response.code, 200)
 
-    def test_unregister_user(self):
+    def test_delete_user(self):
         data = {
+            'email': 'ciccio@pasticcio.it',
+            'password': 'password',
         }
         response = self.fetch('/users/myusername', method='DELETE', body=json.dumps(data))
         self.assertEqual(response.code, 204)
 
         # invalid username
         data = {
+            'email': 'ciccio@pasticcio.it',
+            'password': 'password',
         }
         response = self.fetch('/users/myusername', method='DELETE', body=json.dumps(data))
         self.assertEqual(response.code, 400)
+
+
+class HashersTestCase(TestCase):
+    def test_password_hashing(self):
+        hashed = make_password('mypassword')
+        self.assertTrue(hashed)
+        self.assertTrue(check_password(hashed, 'mypassword'))
+        self.assertFalse(check_password(hashed, 'anotherpassword'))
+
+        another_hashed = make_password('anotherpassword')
+        self.assertNotEqual(hashed, another_hashed)
