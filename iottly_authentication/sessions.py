@@ -1,5 +1,6 @@
 import tornadis
 
+from concurrent.futures import Future
 from tornado import gen
 
 from . import secrets
@@ -28,7 +29,7 @@ class RedisStore:
     REGISTRATION_BUCKET_KEY = 'iottly_auth_registration_bucket'
 
     RESET_PASSWORD_TTL = 60 * 60
-    REGISTRATION_TTL = 24 * 60 * 60
+    REGISTRATION_TOKEN_TTL = 24 * 60 * 60
 
     def __init__(self, **kwargs):
         try:
@@ -69,6 +70,8 @@ class RedisStore:
             raise SessionCreationError
         key = self.get_session_key(token_id)
         result = yield self.set(key, session_value, self.session_ttl)
+        future = Future()
+        future.set_result(session_id)
         return result
 
     @gen.coroutine
@@ -82,6 +85,9 @@ class RedisStore:
         key = self.get_session_key(session_id)
         yield self.client.delete(key)
         yield self.client.call('SREM', self.SESSION_BUCKET_KEY, session_id)
+        return True
+
+    # REGISTRATION TOKEN
 
     def get_registration_key(self, token_id):
         return 'iottly_auth_registration_token_'.format(token_id)
@@ -89,14 +95,22 @@ class RedisStore:
     @gen.coroutine
     def create_registration_token(self, email):
         for i in range(3):
-            token_id = secrets.token_hex(16)
+            token_id = secrets.token_urlsafe(16)
             result = yield self.client.call('SADD', self.REGISTRATION_BUCKET_KEY, token_id)
             if result:
                 break
         if not result:
             raise RegistrationTokenCreationError
         key = self.get_registration_key(token_id)
-        result = yield self.set(key, email, self.REGISTRATION_PASSWORD_TTL)
+        yield self.set(key, email, self.REGISTRATION_TOKEN_TTL)
+        future = Future()
+        future.set_result(token_id)
+        return future
+
+    @gen.coroutine
+    def get_registration_token(self, token_id):
+        key = self.get_registration_key(token_id)
+        result = yield self.get(key)
         return result
 
     @gen.coroutine
@@ -104,6 +118,9 @@ class RedisStore:
         key = self.get_registration_key(token_id)
         yield self.client.delete(key)
         yield self.client.call('SREM', self.REGISTRATION_BUCKET_KEY, token_id)
+        return True
+
+    # RESET PASSWORD
 
     def get_reset_password_key(self, token_id):
         return 'iottly_auth_reset_token_'.format(token_id)
@@ -119,13 +136,22 @@ class RedisStore:
             raise ResetTokenCreationError
         key = self.get_reset_password_key(token_id)
         result = yield self.set(key, email, self.RESET_PASSWORD_TTL)
+        future = Future()
+        future.set_result(token_id)
+        return future
+
+    @gen.coroutine
+    def get_reset_token(self, token_id):
+        key = self.get_reset_password_key(token_id)
+        result = yield self.get(key)
         return result
 
     @gen.coroutine
-    def clear_registration_token(self, token_id):
+    def clear_reset_token(self, token_id):
         key = self.get_reset_password_key(token_id)
         yield self.client.delete(key)
         yield self.client.call('SREM', self.RESET_BUCKET_KEY, token_id)
+        return True
 
     # APPLICATIONS TOKENS
 
@@ -143,6 +169,8 @@ class RedisStore:
             raise TokenCreationError
         key = self.get_token_key(token_id)
         result = yield self.set(key, token_value, -1)
+        future = Future()
+        future.set_result(token_id)
         return result
 
     @gen.coroutine
@@ -156,3 +184,4 @@ class RedisStore:
         key = self.get_token_key(token_id)
         yield self.client.delete(key)
         yield self.client.call('SREM', self.TOKEN_BUCKET_KEY, token_id)
+        return True

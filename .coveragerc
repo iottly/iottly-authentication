@@ -1,0 +1,4 @@
+[run]
+source = iottly_authentication
+omit =
+    iottly_authentication/test*
