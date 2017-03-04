@@ -50,7 +50,7 @@ class RedisStore:
     @gen.coroutine
     def get(self, key):
         result = yield self.client.call('GET', key)
-        return result
+        return result.decode('utf-8')
 
     @gen.coroutine
     def delete(self, key):
