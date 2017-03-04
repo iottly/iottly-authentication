@@ -190,7 +190,8 @@ class LogoutHandler(ApiHandler):
     def post(self):
         session_id = self.get_secure_cookie(self.COOKIE_NAME)
         if not session_id:
-            return None
+            self.json_error(404, {'error': 'No session found'})
+            return
         yield self.application.redis.clear_session(session_id)
 
         self.set_status(200)
