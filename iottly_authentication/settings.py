@@ -18,6 +18,8 @@ defaults = dict(
     SESSION_TTL = 30 * 24 * 60 * 60,
 
     COOKIE_SECRET = 'iottlycookiesecret',
+
+    debug = True,
 )
 
 settings = prettysettings.Settings(defaults)
