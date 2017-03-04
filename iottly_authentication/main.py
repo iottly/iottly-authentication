@@ -5,7 +5,7 @@ import re
 import tornado.ioloop
 
 from cerberus import Validator
-from tornado import gen, web
+from tornado import gen, web, autoreload
 from tornadomail.backends.smtp import EmailBackend
 
 from iottly_authentication import db, sessions, validation
@@ -13,6 +13,7 @@ from iottly_authentication.decorators import user_authenticated
 from iottly_authentication.hashers import make_password, check_password
 from iottly_authentication.settings import settings
 
+logging.getLogger().setLevel(logging.INFO)
 
 TOKEN_RE = re.compile(r'bearer (.{32})$', re.IGNORECASE)
 
@@ -410,7 +411,8 @@ class SessionTestHandler(web.RequestHandler):
 class IottlyApplication(web.Application):
     def __init__(self, handlers=None, default_host=None, transforms=None, **settings):
         tornado_settings = {
-            'cookie_secret': settings['COOKIE_SECRET']
+            'cookie_secret': settings['COOKIE_SECRET'],
+            'debug': settings['debug']
         }
         super(IottlyApplication, self).__init__(handlers, default_host, transforms, **tornado_settings)
         self.db = db.Database(settings)
@@ -428,8 +430,11 @@ class IottlyApplication(web.Application):
             True
         )
 
+def shutdown():
+    pass
 
 def make_app():
+    autoreload.add_reload_hook(shutdown)
     app_settings = settings.to_dict()
 
     return IottlyApplication([
