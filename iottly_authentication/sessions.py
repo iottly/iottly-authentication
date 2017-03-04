@@ -60,7 +60,7 @@ class RedisStore:
     # WEB CLIENTS SESSIONS
 
     def get_session_key(self, session_id):
-        return 'iottly_auth_session_'.format(session_id)
+        return 'iottly_auth_session_{}'.format(session_id)
 
     @gen.coroutine
     def create_session(self, session_value):
@@ -91,7 +91,7 @@ class RedisStore:
     # REGISTRATION TOKEN
 
     def get_registration_key(self, token_id):
-        return 'iottly_auth_registration_token_'.format(token_id)
+        return 'iottly_auth_registration_token_{}'.format(token_id)
 
     @gen.coroutine
     def create_registration_token(self, email):
@@ -122,7 +122,7 @@ class RedisStore:
     # RESET PASSWORD
 
     def get_reset_password_key(self, token_id):
-        return 'iottly_auth_reset_token_'.format(token_id)
+        return 'iottly_auth_reset_token_{}'.format(token_id)
 
     @gen.coroutine
     def create_reset_token(self, email):
@@ -153,7 +153,7 @@ class RedisStore:
     # APPLICATIONS TOKENS
 
     def get_token_key(self, token_id):
-        return 'iottly_auth_token_'.format(token_id)
+        return 'iottly_auth_token_{}'.format(token_id)
 
     @gen.coroutine
     def create_token(self, token_value):
