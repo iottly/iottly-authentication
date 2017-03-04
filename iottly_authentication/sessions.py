@@ -73,9 +73,7 @@ class RedisStore:
             raise SessionCreationError
         key = self.get_session_key(session_id)
         yield self.set(key, session_value, self.session_ttl)
-        result = Future()
-        result.set_result(session_id)
-        return result
+        return session_id
 
     @gen.coroutine
     def get_session(self, session_id):
@@ -106,9 +104,7 @@ class RedisStore:
             raise RegistrationTokenCreationError
         key = self.get_registration_key(token_id)
         yield self.set(key, email, self.REGISTRATION_TOKEN_TTL)
-        result = Future()
-        result.set_result(token_id)
-        return result
+        return token_id
 
     @gen.coroutine
     def get_registration_token(self, token_id):
@@ -139,9 +135,7 @@ class RedisStore:
             raise ResetTokenCreationError
         key = self.get_reset_password_key(token_id)
         yield self.set(key, email, self.RESET_PASSWORD_TTL)
-        result = Future()
-        result.set_result(token_id)
-        return result
+        return token_id
 
     @gen.coroutine
     def get_reset_token(self, token_id):
@@ -172,9 +166,7 @@ class RedisStore:
             raise TokenCreationError
         key = self.get_token_key(token_id)
         yield self.set(key, token_value, -1)
-        result = Future()
-        result.set_result(token_id)
-        return result
+        return token_id
 
     @gen.coroutine
     def get_token(self, token_id):
