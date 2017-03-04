@@ -41,7 +41,10 @@ class RedisStore:
 
     @gen.coroutine
     def set(self, key, value, ttl):
-        result = yield self.client.call('SET', key, value, ttl)
+        args = ['SET', key, value]
+        if ttl > 0:
+            args += ['EX', ttl]
+        result = yield self.client.call(*args)
         return result
 
     @gen.coroutine
@@ -68,10 +71,10 @@ class RedisStore:
                 break
         if not result:
             raise SessionCreationError
-        key = self.get_session_key(token_id)
-        result = yield self.set(key, session_value, self.session_ttl)
-        future = Future()
-        future.set_result(session_id)
+        key = self.get_session_key(session_id)
+        yield self.set(key, session_value, self.session_ttl)
+        result = Future()
+        result.set_result(session_id)
         return result
 
     @gen.coroutine
@@ -83,7 +86,7 @@ class RedisStore:
     @gen.coroutine
     def clear_session(self, session_id):
         key = self.get_session_key(session_id)
-        yield self.client.delete(key)
+        yield self.delete(key)
         yield self.client.call('SREM', self.SESSION_BUCKET_KEY, session_id)
         return True
 
@@ -103,9 +106,9 @@ class RedisStore:
             raise RegistrationTokenCreationError
         key = self.get_registration_key(token_id)
         yield self.set(key, email, self.REGISTRATION_TOKEN_TTL)
-        future = Future()
-        future.set_result(token_id)
-        return future
+        result = Future()
+        result.set_result(token_id)
+        return result
 
     @gen.coroutine
     def get_registration_token(self, token_id):
@@ -116,7 +119,7 @@ class RedisStore:
     @gen.coroutine
     def clear_registration_token(self, token_id):
         key = self.get_registration_key(token_id)
-        yield self.client.delete(key)
+        yield self.delete(key)
         yield self.client.call('SREM', self.REGISTRATION_BUCKET_KEY, token_id)
         return True
 
@@ -135,10 +138,10 @@ class RedisStore:
         if not result:
             raise ResetTokenCreationError
         key = self.get_reset_password_key(token_id)
-        result = yield self.set(key, email, self.RESET_PASSWORD_TTL)
-        future = Future()
-        future.set_result(token_id)
-        return future
+        yield self.set(key, email, self.RESET_PASSWORD_TTL)
+        result = Future()
+        result.set_result(token_id)
+        return result
 
     @gen.coroutine
     def get_reset_token(self, token_id):
@@ -149,8 +152,8 @@ class RedisStore:
     @gen.coroutine
     def clear_reset_token(self, token_id):
         key = self.get_reset_password_key(token_id)
-        yield self.client.delete(key)
-        yield self.client.call('SREM', self.RESET_BUCKET_KEY, token_id)
+        yield self.delete(key)
+        yield self.client.call('SREM', self.RESET_PASSWORD_BUCKET_KEY, token_id)
         return True
 
     # APPLICATIONS TOKENS
@@ -168,9 +171,9 @@ class RedisStore:
         if not result:
             raise TokenCreationError
         key = self.get_token_key(token_id)
-        result = yield self.set(key, token_value, -1)
-        future = Future()
-        future.set_result(token_id)
+        yield self.set(key, token_value, -1)
+        result = Future()
+        result.set_result(token_id)
         return result
 
     @gen.coroutine
@@ -182,6 +185,6 @@ class RedisStore:
     @gen.coroutine
     def clear_token(self, token_id):
         key = self.get_token_key(token_id)
-        yield self.client.delete(key)
+        yield self.delete(key)
         yield self.client.call('SREM', self.TOKEN_BUCKET_KEY, token_id)
         return True
