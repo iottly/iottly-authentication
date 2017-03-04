@@ -4,8 +4,6 @@ import re
 
 import tornado.ioloop
 
-from inspect import ismodule
-
 from cerberus import Validator
 from tornado import gen, web
 
@@ -383,8 +381,8 @@ class IottlyApplication(web.Application):
 
 
 def make_app():
-    # app_settings = settings.to_dict()
-    app_settings = {k: v for k, v in settings.__dict__.items() if k[0] != '_' and not ismodule(v)}
+    app_settings = settings.to_dict()
+
     return IottlyApplication([
         (r'/auth/login$', LoginHandler),
         (r'/auth/logout$', LogoutHandler),
