@@ -52,6 +52,7 @@ class ApiHandler(web.RequestHandler):
         session_id = self.get_secure_cookie(self.COOKIE_NAME)
         if not session_id:
             return None
+        session_id = session_id.decode('utf-8')
         user = yield self.application.redis.get_session(session_id)
         if not user:
             return None
@@ -192,6 +193,7 @@ class LogoutHandler(ApiHandler):
         if not session_id:
             self.json_error(404, {'error': 'No session found'})
             return
+        session_id = session_id.decode('utf-8')
         yield self.application.redis.clear_session(session_id)
 
         self.set_status(200)
