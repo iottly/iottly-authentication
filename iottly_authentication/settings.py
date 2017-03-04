@@ -11,6 +11,8 @@ defaults = dict(
     REDIS_PORT = 6379,
 
     SESSION_TTL = 30 * 24 * 60 * 60,
+
+    COOKIE_SECRET = 'iottlycookiesecret',
 )
 
 settings = prettysettings.Settings(defaults)

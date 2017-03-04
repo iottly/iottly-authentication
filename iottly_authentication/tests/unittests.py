@@ -21,8 +21,7 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             'REDIS_HOST': 'localhost',
             'REDIS_PORT': 12345,
             'SESSION_TTL': '10',
-            'cookie_secret': 'secret',
-            'login_url': '/auth/login',
+            'COOKIE_SECRET': 'secret',
         }
         return main.IottlyApplication([
             (r'/auth/login$', main.LoginHandler),

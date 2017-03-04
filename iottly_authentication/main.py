@@ -236,7 +236,6 @@ class PasswordResetRequestHandler(ApiHandler):
             raise web.HTTPError(400, json.dumps(v.errors))
 
         user = yield self.application.db.get('users', {'email': data['email']})
-        print(user, type(user))
         if user is None:
             raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
 
@@ -255,22 +254,18 @@ class PasswordUpdateHandler(ApiHandler):
     @user_authenticated
     @gen.coroutine
     def put(self, username):
-        print("username", username, self.current_user, type(username))
         if self.current_user != username:
             raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
 
-        print("DOPO CHECK UTENTE")
         v = Validator(validation.PASSWORD_UPDATE)
         data = self.json_args
         if not v.validate(data):
             raise web.HTTPError(400, json.dumps(v.errors))
 
-        print("PRIMA DB")
         user = yield self.application.db.get('users', {'username': username})
         if user is None:
             raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
 
-        print("DOPO DB DB")
         password = make_password(data['password'])
         yield self.application.db.update('users', {'username': username}, {'password': password})
 
@@ -377,7 +372,10 @@ class TokenHandler(ApiHandler):
 
 class IottlyApplication(web.Application):
     def __init__(self, handlers=None, default_host=None, transforms=None, **settings):
-        super(IottlyApplication, self).__init__(handlers, default_host, transforms, **settings)
+        tornado_settings = {
+            'cookie_secret': settings['COOKIE_SECRET']
+        }
+        super(IottlyApplication, self).__init__(handlers, default_host, transforms, **tornado_settings)
         self.db = db.Database(settings)
         self.redis = sessions.RedisStore(
             host=settings['REDIS_HOST'],
