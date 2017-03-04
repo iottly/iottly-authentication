@@ -18,9 +18,7 @@ logging.getLogger().setLevel(logging.INFO)
 TOKEN_RE = re.compile(r'bearer (.{32})$', re.IGNORECASE)
 
 # TODO:
-# per scrivere su mongo forse passiamo per api
 # le coroutine non devono alzare eccezioni
-
 
 class ApiHandler(web.RequestHandler):
     COOKIE_NAME = 'iottly-session-id'

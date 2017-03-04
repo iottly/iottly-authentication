@@ -20,6 +20,9 @@ defaults = dict(
     COOKIE_SECRET = 'iottlycookiesecret',
 
     debug = True,
+
+    PUBLIC_HOST = '127.0.0.1',
+    PUBLIC_URL_PATTERN = 'http://{}',
 )
 
 settings = prettysettings.Settings(defaults)
