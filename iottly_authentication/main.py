@@ -20,6 +20,7 @@ TOKEN_RE = re.compile(r'bearer (.{32})$', re.IGNORECASE)
 # per scrivere su mongo forse passiamo per api
 # le coroutine non devono alzare eccezioni
 
+
 class ApiHandler(web.RequestHandler):
     COOKIE_NAME = 'iottly-session-id'
 
@@ -34,11 +35,18 @@ class ApiHandler(web.RequestHandler):
                         'error': 'Invalid JSON'
                     }
                     logging.debug('{}: {}'.format('Invalid JSON', self.request.body))
-                    raise web.HTTPError(400, json.dumps(msg))
+                    self.json_error(400, msg)
+                    return
             else:
                 self.json_args = None
 
-        self.set_header("Content-Type", "application/json")
+        self.set_header('Content-Type', 'application/json')
+
+    def json_error(self, status_code, body):
+        self.set_header('Content-Type', 'application/json')
+        self.set_status(status_code)
+        self.write(json.dumps(body))
+        self.finish()
 
     @gen.coroutine
     def get_user_from_cookie(self):
@@ -77,7 +85,8 @@ class RegistrationHandler(ApiHandler):
     def post(self):
         v = Validator(validation.USER_REGISTRATION)
         if not v.validate(self.json_args):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         data = self.json_args.copy()
         data['password'] = make_password(data['password'])
@@ -85,12 +94,14 @@ class RegistrationHandler(ApiHandler):
         try:
             yield self.application.db.insert('users', data)
         except db.errors.DuplicateKeyError:
-            raise web.HTTPError(409, json.dumps({'error': 'Invalid username / email'}))
+            self.json_error(409, {'error': 'Invalid username / email'})
+            return
 
         try:
             token = yield self.application.redis.create_registration_token(data['email'])
         except sessions.RegistrationTokenCreationError:
-            raise web.HTTPError(500, json.dumps({'error': 'Internal Server Error'}))
+            self.json_error(500, {'error': 'Internal Server Error'})
+            return
 
         # FIXME: send email confirmation url
 
@@ -105,21 +116,25 @@ class RegistrationHandler(ApiHandler):
                 'registration_token': self.get_query_argument('registration_token'),
             }
         except web.MissingArgumentError:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid Request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         v = Validator(validation.USER_REGISTRATION_CONFIRM)
         if not v.validate(data):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         user = yield self.application.db.get('users', {'email': data['email']})
         if not user:
             yield self.application.redis.clear_registration_token(data['registration_token'])
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         email = yield self.application.redis.get_registration_token(data['registration_token'])
         if not email or email != data['email']:
             yield self.application.redis.clear_registration_token(data['registration_token'])
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         user = yield self.application.db.update('users', {'email': data['email']}, {'active': True})
 
@@ -134,7 +149,8 @@ class LoginHandler(ApiHandler):
     def post(self):
         v = Validator(validation.USER_LOGIN)
         if not v.validate(self.json_args):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         # we already have a session for the user
         user = yield self.get_user_from_cookie()
@@ -146,19 +162,23 @@ class LoginHandler(ApiHandler):
         data = self.json_args
         user = yield self.application.db.get('users', {'username': data['username']})
         if not user:
-            raise web.HTTPError(403, json.dumps({'error': 'Invalid username / password'}))
+            self.json_error(403, {'error': 'Invalid username / password'})
+            return
 
         if not user['active']:
-            raise web.HTTPError(403, json.dumps({'error': 'User is not active'}))
+            self.json_error(403, {'error': 'Invalid username / password'})
+            return
 
         login_valid = check_password(user['password'], data['password'])
         if not login_valid:
-            raise web.HTTPError(403, json.dumps({'error': 'Invalid username / password'}))
+            self.json_error(403, {'error': 'Invalid username / password'})
+            return
 
         try:
             session_id = yield self.application.redis.create_session(user['username'])
         except sessions.SessionCreationError:
-            raise web.HTTPError(500, json.dumps({'error': 'Internal Server Error'}))
+            self.json_error(500, {'error': 'Internal Server Error'})
+            return
 
         self.set_session_cookie(session_id)
 
@@ -184,11 +204,13 @@ class SessionUserHandler(ApiHandler):
         data = self.json_args
         v = Validator(validation.USER_FROM_SESSION)
         if not v.validate(data):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         user = yield self.application.redis.get_session(data['session_id'])
         if not user:
-            raise web.HTTPError(404, json.dumps({'error': 'No session found'}))
+            self.json_error(404, {'error': 'No session found'})
+            return
 
         self.set_status(200)
         self.write(json.dumps({'user': user}))
@@ -199,15 +221,18 @@ class UserHandler(ApiHandler):
     @gen.coroutine
     def put(self, username):
         if self.current_user != username:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         v = Validator(validation.USER_UPDATE)
         if not v.validate(self.json_args):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         user = yield self.application.db.get('users', {'username': username})
         if user is None:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         yield self.application.db.update('users', {'username': username}, self.json_args)
         self.set_status(200)
@@ -217,11 +242,13 @@ class UserHandler(ApiHandler):
     @gen.coroutine
     def delete(self, username):
         if self.current_user != username:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         user = yield self.application.db.get('users', {'username': username})
         if user is None:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         # FIXME: do actual deletion
 
@@ -235,16 +262,19 @@ class PasswordResetRequestHandler(ApiHandler):
         v = Validator(validation.PASSWORD_RESET_REQUEST)
         data = self.json_args
         if not v.validate(data):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         user = yield self.application.db.get('users', {'email': data['email']})
         if user is None:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         try:
             token_id = yield self.application.redis.create_reset_token(data['email'])
         except sessions.ResetTokenCreationError:
-            raise web.HTTPError(500, json.dumps({'error': 'Internal Server Error'}))
+            self.json_error(500, {'error': 'Internal Server Error'})
+            return
 
         # FIXME: send email confirmation with the token
 
@@ -257,16 +287,19 @@ class PasswordUpdateHandler(ApiHandler):
     @gen.coroutine
     def put(self, username):
         if self.current_user != username:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         v = Validator(validation.PASSWORD_UPDATE)
         data = self.json_args
         if not v.validate(data):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         user = yield self.application.db.get('users', {'username': username})
         if user is None:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         password = make_password(data['password'])
         yield self.application.db.update('users', {'username': username}, {'password': password})
@@ -281,17 +314,20 @@ class PasswordResetHandler(ApiHandler):
         v = Validator(validation.PASSWORD_RESET)
         data = self.json_args
         if not v.validate(data):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         user = yield self.application.db.get('users', {'email': data['email']})
         if user is None:
             yield self.application.redis.clear_reset_token(data['reset_token'])
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         email = yield self.application.redis.get_reset_token(data['reset_token'])
         if not email or email != data['email']:
             yield self.application.redis.clear_reset_token(data['reset_token'])
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
 
         password = make_password(data['password'])
         user = yield self.application.db.update('users', {'email': email}, {'password': password})
@@ -303,18 +339,19 @@ class PasswordResetHandler(ApiHandler):
 
 
 class TokenCreateHandler(ApiHandler):
-    @user_authenticated
     @gen.coroutine
     def post(self):
         v = Validator(validation.TOKEN_CREATE)
         data = self.json_args
         if not v.validate(data):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         try:
             token_id = yield self.application.redis.create_token(data['project'])
         except sessions.TokenCreationError:
-            raise web.HTTPError(500, json.dumps({'error': 'Internal Server Error'}))
+            self.json_error(500, {'error': 'Internal Server Error'})
+            return
 
         token = {
              'project': data['project'],
@@ -326,7 +363,6 @@ class TokenCreateHandler(ApiHandler):
 
 
 class TokenDeleteHandler(ApiHandler):
-    @user_authenticated
     @gen.coroutine
     def delete(self, project, token_id):
         v = Validator(validation.TOKEN_DELETE)
@@ -335,11 +371,13 @@ class TokenDeleteHandler(ApiHandler):
             'project': project
         }
         if not v.validate(data):
-            raise web.HTTPError(400, json.dumps(v.errors))
+            self.json_error(400, v.errors)
+            return
 
         token_value = yield self.application.redis.get_token(token_id)
         if not token_value or token_value != project:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
         yield self.application.redis.clear_token(token_id)
 
         self.set_status(204)
@@ -399,12 +437,12 @@ def make_app():
         (r'/auth/logout$', LogoutHandler),
         (r'/auth/password/reset$', PasswordResetHandler),
         (r'/auth/password/reset/request$', PasswordResetRequestHandler),
-        (r'/auth/projects/token$', TokenCreateHandler),
-        (r'/auth/projects/([\w_\+\.\-]+)/token/(\w+)$', TokenDeleteHandler),
         (r'/auth/register$', RegistrationHandler),
         (r'/auth/users/([\w_\+\.\-]+)$', UserHandler),
         (r'/auth/users/([\w_\+\.\-]+)/password/update$', PasswordUpdateHandler),
         (r'/user$', SessionUserHandler),
+        (r'/projects/token$', TokenCreateHandler),
+        (r'/projects/([\w_\+\.\-]+)/token/(\w+)$', TokenDeleteHandler),
     ], **app_settings)
 
 

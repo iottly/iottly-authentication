@@ -32,12 +32,12 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             (r'/auth/logout$', main.LogoutHandler),
             (r'/auth/password/reset$', main.PasswordResetHandler),
             (r'/auth/password/reset/request$', main.PasswordResetRequestHandler),
-            (r'/auth/projects/token$', main.TokenCreateHandler),
-            (r'/auth/projects/([\w_\+\.\-]+)/token/(\w+)$', main.TokenDeleteHandler),
             (r'/auth/register$', main.RegistrationHandler),
             (r'/auth/users/([\w_\+\.\-]+)$', main.UserHandler),
             (r'/auth/users/([\w_\+\.\-]+)/password/update$', main.PasswordUpdateHandler),
             (r'/user$', main.SessionUserHandler),
+            (r'/projects/token$', main.TokenCreateHandler),
+            (r'/projects/([\w_\+\.\-]+)/token/(\w+)$', main.TokenDeleteHandler),
         ], **settings)
 
     def get_db(self):
@@ -87,6 +87,7 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
         with mock.patch.object(self._app.db, 'insert', side_effect=db.errors.DuplicateKeyError('')):
             response = self.fetch('/auth/register', method='POST', body=json.dumps(dup_data))
         self.assertEqual(response.code, 409)
+        self.assertEqual(response.headers['Content-Type'], 'application/json')
 
         # duplicated email
         dup_data = data.copy()
@@ -320,31 +321,27 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
         }
         token = Future()
         token.set_result('myprojecthashsupposedly')
-        with mock.patch.object(main.TokenCreateHandler, 'get_current_user', return_value='cicciopasticcio'):
-            with mock.patch.object(self._app.redis, 'create_token', return_value=token):
-                response = self.fetch('/auth/projects/token', method='POST', body=json.dumps(data))
+        with mock.patch.object(self._app.redis, 'create_token', return_value=token):
+            response = self.fetch('/projects/token', method='POST', body=json.dumps(data))
         self.assertEqual(response.code, 201)
 
-        with mock.patch.object(main.TokenCreateHandler, 'get_current_user', return_value=None):
-            response = self.fetch('/auth/projects/token', method='POST', body=json.dumps(data))
-        self.assertEqual(response.code, 403)
+        response = self.fetch('/projects/token', method='POST', body=json.dumps({}))
+        self.assertEqual(response.code, 400)
 
     def test_token_handler_delete(self):
         clear, token, invalid_token = Future(), Future(), Future()
         clear.set_result(True)
         token.set_result('myprojecthashsupposedly')
         invalid_token.set_result('anotherprojecthash')
-        url = '/auth/projects/myprojecthashsupposedly/token/f9bf78b9a18ce6d46a0cd2b0b86df9da'
-        with mock.patch.object(main.TokenDeleteHandler, 'get_current_user', return_value='cicciopasticcio'):
-            with mock.patch.object(self._app.redis, 'get_token', return_value=token):
-                with mock.patch.object(self._app.redis, 'clear_token', return_value=clear) as clear_token:
-                    response = self.fetch(url, method='DELETE')
+        url = '/projects/myprojecthashsupposedly/token/f9bf78b9a18ce6d46a0cd2b0b86df9da'
+        with mock.patch.object(self._app.redis, 'get_token', return_value=token):
+            with mock.patch.object(self._app.redis, 'clear_token', return_value=clear) as clear_token:
+                response = self.fetch(url, method='DELETE')
         self.assertEqual(response.code, 204)
         clear_token.assert_called_once_with('f9bf78b9a18ce6d46a0cd2b0b86df9da')
 
-        with mock.patch.object(main.TokenDeleteHandler, 'get_current_user', return_value='cicciopasticcio'):
-            with mock.patch.object(self._app.redis, 'get_token', return_value=invalid_token):
-                response = self.fetch(url, method='DELETE')
+        with mock.patch.object(self._app.redis, 'get_token', return_value=invalid_token):
+            response = self.fetch(url, method='DELETE')
         self.assertEqual(response.code, 400)
 
 
