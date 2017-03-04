@@ -3,7 +3,7 @@ import tornadis
 from concurrent.futures import Future
 from tornado import gen
 
-from . import secrets
+from iottly_authentication import secrets
 
 
 class RegistrationTokenCreationError(Exception):

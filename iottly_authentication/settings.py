@@ -10,6 +10,11 @@ defaults = dict(
     REDIS_HOST = 'localhost',
     REDIS_PORT = 6379,
 
+    SMTP_HOST = 'localhost',
+    SMTP_PORT = 587,
+    SMTP_USER = None,
+    SMTP_PASSWORD = None,
+
     SESSION_TTL = 30 * 24 * 60 * 60,
 
     COOKIE_SECRET = 'iottlycookiesecret',

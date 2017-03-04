@@ -6,11 +6,12 @@ import tornado.ioloop
 
 from cerberus import Validator
 from tornado import gen, web
+from tornadomail.backends.smtp import EmailBackend
 
-from . import db, sessions, validation
-from .decorators import user_authenticated
-from .hashers import make_password, check_password
-from .settings import settings
+from iottly_authentication import db, sessions, validation
+from iottly_authentication.decorators import user_authenticated
+from iottly_authentication.hashers import make_password, check_password
+from iottly_authentication.settings import settings
 
 
 TOKEN_RE = re.compile(r'bearer (.{32})$', re.IGNORECASE)
@@ -177,20 +178,23 @@ class LogoutHandler(ApiHandler):
         self.finish()
 
 
-class UserHandler(ApiHandler):
-    @user_authenticated
+class SessionUserHandler(ApiHandler):
     @gen.coroutine
-    def get(self, username):
-        user = yield self.application.db.get('users', {'username': username})
-        if user is None:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
-        data = {
-           'username': user['username'],
-           'full_name': user['full_name'],
-        }
-        self.set_status(200)
-        self.write(json.dumps(data))
+    def post(self):
+        data = self.json_args
+        v = Validator(validation.USER_FROM_SESSION)
+        if not v.validate(data):
+            raise web.HTTPError(400, json.dumps(v.errors))
 
+        user = yield self.application.redis.get_session(data['session_id'])
+        if not user:
+            raise web.HTTPError(404, json.dumps({'error': 'No session found'}))
+
+        self.set_status(200)
+        self.write(json.dumps({'user': user}))
+
+
+class UserHandler(ApiHandler):
     @user_authenticated
     @gen.coroutine
     def put(self, username):
@@ -378,6 +382,13 @@ class IottlyApplication(web.Application):
             autoconnect=True,
             session_ttl=settings['SESSION_TTL']
         )
+        self.mail = EmailBackend(
+            settings['SMTP_HOST'],
+            settings['SMTP_PORT'],
+            settings['SMTP_USER'],
+            settings['SMTP_PASSWORD'],
+            True
+        )
 
 
 def make_app():
@@ -393,6 +404,7 @@ def make_app():
         (r'/auth/register$', RegistrationHandler),
         (r'/auth/users/([\w_\+\.\-]+)$', UserHandler),
         (r'/auth/users/([\w_\+\.\-]+)/password/update$', PasswordUpdateHandler),
+        (r'/user$', SessionUserHandler),
     ], **app_settings)
 
 

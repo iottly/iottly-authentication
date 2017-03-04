@@ -22,6 +22,10 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             'REDIS_PORT': 12345,
             'SESSION_TTL': '10',
             'COOKIE_SECRET': 'secret',
+            'SMTP_HOST': 'localhost',
+            'SMTP_PORT': 587,
+            'SMTP_USER': None,
+            'SMTP_PASSWORD': None,
         }
         return main.IottlyApplication([
             (r'/auth/login$', main.LoginHandler),
@@ -33,6 +37,7 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             (r'/auth/register$', main.RegistrationHandler),
             (r'/auth/users/([\w_\+\.\-]+)$', main.UserHandler),
             (r'/auth/users/([\w_\+\.\-]+)/password/update$', main.PasswordUpdateHandler),
+            (r'/user$', main.SessionUserHandler),
         ], **settings)
 
     def get_db(self):
@@ -172,21 +177,19 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
         self.assertEqual(response.code, 200)
         clear_session.assert_called_once_with(cookie)
 
-    def test_get_user_data(self):
-        db = self.get_db()
-        self.insert_valid_user(db)
-
-        response = self.fetch('/auth/users/cicciopasticcio', method='GET')
-        self.assertEqual(response.code, 403)
-
-        with mock.patch.object(main.UserHandler, 'get_current_user', return_value='cicciopasticcio'):
-            response = self.fetch('/auth/users/cicciopasticcio', method='GET')
+    def test_username_from_session(self):
+        no_user, user = Future(), Future()
+        user.set_result('cicciopasticcio')
+        with mock.patch.object(self._app.redis, 'get_session', return_value=user) as get_session:
+            response = self.fetch('/user', method='POST', body=json.dumps({'session_id': self.SESSION_TOKEN}))
         self.assertEqual(response.code, 200)
-        self.assertIn('Ciccio Pasticcio', response.body.decode('utf-8'))
+        self.assertIn('cicciopasticcio', response.body.decode('utf-8'))
+        get_session.assert_called_once_with(self.SESSION_TOKEN)
 
-        with mock.patch.object(main.UserHandler, 'get_current_user', return_value='cicciopasticcio'):
-            response = self.fetch('/auth/users/myusername', method='GET')
-        self.assertEqual(response.code, 400)
+        no_user.set_result(None)
+        with mock.patch.object(self._app.redis, 'get_session', return_value=no_user):
+            response = self.fetch('/user', method='POST', body=json.dumps({'session_id': self.SESSION_TOKEN}))
+        self.assertEqual(response.code, 404)
 
     def test_update_user_data(self):
         db = self.get_db()

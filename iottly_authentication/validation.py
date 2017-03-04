@@ -23,6 +23,10 @@ USER_UPDATE = {
     'full_name': {'type': 'string', 'maxlength': 100},
 }
 
+USER_FROM_SESSION = {
+    'session_id': {'type': 'string', 'minlength': 32, 'maxlength': 32}
+}
+
 TOKEN_CREATE = {
     'project': {'type': 'string'},
 }
