@@ -300,75 +300,49 @@ class PasswordResetHandler(ApiHandler):
         self.write(json.dumps({}))
 
 
-class TokenHandler(ApiHandler):
-    @gen.coroutine
-    def _get_project(self, project_name):
-        project = yield self.application.db.get('projects', {'name': project_name})
-        return project
-
-    @gen.coroutine
-    def _update_project_tokens(self, project_name, token):
-        yield self.application.db.update('projects', {'name': project_name}, {'tokens': tokens})
-
+class TokenCreateHandler(ApiHandler):
     @user_authenticated
     @gen.coroutine
-    def get(self, project_name):
-        # TODO: check that the user has proper rights for the project
-        project = self._get_project(project_name)
-        if project is None:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
-
-        self.set_status(200)
-        self.write(json.dumps(project['tokens']))
-
-    @user_authenticated
-    @gen.coroutine
-    def post(self, project_name):
-        # TODO: check that the user has proper rights for the project
+    def post(self):
         v = Validator(validation.TOKEN_CREATE)
         data = self.json_args
         if not v.validate(data):
             raise web.HTTPError(400, json.dumps(v.errors))
 
-        project = self._get_project(project_name)
-        if project is None:
-            raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
-
         try:
-            token_id = yield self.application.redis.create_token()
+            token_id = yield self.application.redis.create_token(data['project'])
         except sessions.TokenCreationError:
             raise web.HTTPError(500, json.dumps({'error': 'Internal Server Error'}))
 
         token = {
-             'description': data['description'],
+             'project': data['project'],
              'token_id': token_id
         }
 
-        tokens = user['tokens'] + [token]
-        yield self._update_project_tokens(project_name, tokens)
-        self.set_status(200)
+        self.set_status(201)
         self.write(json.dumps(token))
 
+
+class TokenDeleteHandler(ApiHandler):
     @user_authenticated
     @gen.coroutine
-    def delete(self, username):
-        # TODO: check that the user has proper rights for the project
+    def delete(self, project, token_id):
         v = Validator(validation.TOKEN_DELETE)
-        data = self.json_args
+        data = {
+            'token_id': token_id,
+            'project': project
+        }
         if not v.validate(data):
             raise web.HTTPError(400, json.dumps(v.errors))
 
-        project = self._get_project(project_name)
-        if project is None:
+        token_value = yield self.application.redis.get_token(token_id)
+        if not token_value or token_value != project:
             raise web.HTTPError(400, json.dumps({'error': 'Invalid request'}))
-
-        tokens = [token for token in project['tokens'] if token['token_id'] != token_id]
-        yield self._update_project_tokens(project_name, tokens)
-
         yield self.application.redis.clear_token(token_id)
 
         self.set_status(204)
         self.finish()
+
 
 class IottlyApplication(web.Application):
     def __init__(self, handlers=None, default_host=None, transforms=None, **settings):
@@ -385,17 +359,16 @@ class IottlyApplication(web.Application):
         )
 
 
-def make_app(override_settings=None):
+def make_app():
     # app_settings = settings.to_dict()
     app_settings = {k: v for k, v in settings.__dict__.items() if k[0] != '_' and not ismodule(v)}
-    if override_settings:
-        app_settings.update(override_settings)
     return IottlyApplication([
         (r'/auth/login$', LoginHandler),
         (r'/auth/logout$', LogoutHandler),
         (r'/auth/password/reset$', PasswordResetHandler),
         (r'/auth/password/reset/request$', PasswordResetRequestHandler),
-        (r'/auth/projects/([\w_\+\.\-]+)/token$', TokenHandler),
+        (r'/auth/projects/token$', TokenCreateHandler),
+        (r'/auth/projects/([\w_\+\.\-]+)/token/(\w+)$', TokenDeleteHandler),
         (r'/auth/register$', RegistrationHandler),
         (r'/auth/users/([\w_\+\.\-]+)$', UserHandler),
         (r'/auth/users/([\w_\+\.\-]+)/password/update$', PasswordUpdateHandler),

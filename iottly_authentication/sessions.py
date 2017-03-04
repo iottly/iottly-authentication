@@ -162,7 +162,7 @@ class RedisStore:
     def create_token(self, token_value):
         for i in range(3):
             token_id = secrets.token_hex(16)
-            result = yield self.client.call('SADD', self.TOKEN_BUCKET_KEY, token)
+            result = yield self.client.call('SADD', self.TOKEN_BUCKET_KEY, token_id)
             if result:
                 break
         if not result:

@@ -24,10 +24,11 @@ USER_UPDATE = {
 }
 
 TOKEN_CREATE = {
-    'description': {'type': 'string', 'maxlength': 255}
+    'project': {'type': 'string'},
 }
 
 TOKEN_DELETE = {
+    'project': {'type': 'string'},
     'token_id': {'type': 'string', 'minlength': 32, 'maxlength': 32}
 }
 

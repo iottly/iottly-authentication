@@ -28,7 +28,8 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             (r'/auth/logout$', main.LogoutHandler),
             (r'/auth/password/reset$', main.PasswordResetHandler),
             (r'/auth/password/reset/request$', main.PasswordResetRequestHandler),
-            (r'/auth/projects/([\w_\+\.\-]+)/token$', main.TokenHandler),
+            (r'/auth/projects/token$', main.TokenCreateHandler),
+            (r'/auth/projects/([\w_\+\.\-]+)/token/(\w+)$', main.TokenDeleteHandler),
             (r'/auth/register$', main.RegistrationHandler),
             (r'/auth/users/([\w_\+\.\-]+)$', main.UserHandler),
             (r'/auth/users/([\w_\+\.\-]+)/password/update$', main.PasswordUpdateHandler),
@@ -310,14 +311,38 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             response = self.fetch('/auth/users/anotheruser/password/update', method='PUT', body=json.dumps(data))
         self.assertEqual(response.code, 400)
 
-    def test_token_handler_get(self):
-        pass
-
     def test_token_handler_create(self):
-        pass
+        data = {
+            'project': 'myprojecthashsupposedly',
+        }
+        token = Future()
+        token.set_result('myprojecthashsupposedly')
+        with mock.patch.object(main.TokenCreateHandler, 'get_current_user', return_value='cicciopasticcio'):
+            with mock.patch.object(self._app.redis, 'create_token', return_value=token):
+                response = self.fetch('/auth/projects/token', method='POST', body=json.dumps(data))
+        self.assertEqual(response.code, 201)
+
+        with mock.patch.object(main.TokenCreateHandler, 'get_current_user', return_value=None):
+            response = self.fetch('/auth/projects/token', method='POST', body=json.dumps(data))
+        self.assertEqual(response.code, 403)
 
     def test_token_handler_delete(self):
-        pass
+        clear, token, invalid_token = Future(), Future(), Future()
+        clear.set_result(True)
+        token.set_result('myprojecthashsupposedly')
+        invalid_token.set_result('anotherprojecthash')
+        url = '/auth/projects/myprojecthashsupposedly/token/f9bf78b9a18ce6d46a0cd2b0b86df9da'
+        with mock.patch.object(main.TokenDeleteHandler, 'get_current_user', return_value='cicciopasticcio'):
+            with mock.patch.object(self._app.redis, 'get_token', return_value=token):
+                with mock.patch.object(self._app.redis, 'clear_token', return_value=clear) as clear_token:
+                    response = self.fetch(url, method='DELETE')
+        self.assertEqual(response.code, 204)
+        clear_token.assert_called_once_with('f9bf78b9a18ce6d46a0cd2b0b86df9da')
+
+        with mock.patch.object(main.TokenDeleteHandler, 'get_current_user', return_value='cicciopasticcio'):
+            with mock.patch.object(self._app.redis, 'get_token', return_value=invalid_token):
+                response = self.fetch(url, method='DELETE')
+        self.assertEqual(response.code, 400)
 
 
 class HashersTestCase(TestCase):
