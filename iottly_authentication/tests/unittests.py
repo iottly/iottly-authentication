@@ -32,6 +32,8 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             'debug': False,
             'PUBLIC_HOST': '127.0.0.1',
             'PUBLIC_URL_PATTERN': 'http://{}',
+            'REGISTRATION_CONFIRM_PATH': '/auth/register',
+            'RESET_PASSWORD_PATH': '/auth/password/reset',
         }
         return main.IottlyApplication([
             (r'/auth/login$', main.LoginHandler),

@@ -28,6 +28,9 @@ defaults = dict(
 
     PUBLIC_HOST = '127.0.0.1:8523',
     PUBLIC_URL_PATTERN = 'http://{}',
+
+    REGISTRATION_CONFIRM_PATH = '/auth/register',
+    RESET_PASSWORD_PATH = '/auth/password/reset',
 )
 
 settings = prettysettings.Settings(defaults)

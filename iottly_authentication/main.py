@@ -92,7 +92,7 @@ class RegistrationHandler(ApiHandler):
     @gen.coroutine
     def send_confirm_email(self, token, user):
         app = self.application
-        confirm_url = url_concat('{}/auth/register'.format(app.settings['AUTH_PUBLIC_URL']), {
+        confirm_url = url_concat('{}{}'.format(app.settings['AUTH_PUBLIC_URL'], app.settings['REGISTRATION_CONFIRM_PATH']), {
             'email': user['email'],
             'registration_token': token,
         })
@@ -311,7 +311,7 @@ class PasswordResetRequestHandler(ApiHandler):
     @gen.coroutine
     def send_reset_password_email(self, token, email):
         app = self.application
-        reset_url = url_concat('{}/auth/password/reset'.format(app.settings['AUTH_PUBLIC_URL']), {
+        reset_url = url_concat('{}{}'.format(app.settings['AUTH_PUBLIC_URL'], app.settings['RESET_PASSWORD_PATH']), {
             'reset_token': token,
             'email': email,
         })
@@ -517,6 +517,8 @@ class IottlyApplication(web.Application):
             'AUTH_COOKIE_NAME': settings['AUTH_COOKIE_NAME'],
             'AUTH_PUBLIC_URL': public_url,
             'FROM_EMAIL': settings['FROM_EMAIL'],
+            'REGISTRATION_CONFIRM_PATH': settings['REGISTRATION_CONFIRM_PATH'],
+            'RESET_PASSWORD_PATH': settings['RESET_PASSWORD_PATH'],
         }
         super(IottlyApplication, self).__init__(handlers, default_host, transforms, **tornado_settings)
         self.db = db.Database(settings)
