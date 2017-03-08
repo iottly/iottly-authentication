@@ -23,7 +23,6 @@ EMAIL_TEMPLATES = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp
 
 # TODO:
 # mandare email da template
-# decoratore che si va a pigliare l'utente della sessione per controllare che il token sia valido
 
 class ApiHandler(web.RequestHandler):
     def prepare(self):
@@ -78,10 +77,10 @@ class ApiHandler(web.RequestHandler):
         if not match:
             return None
         token_id = match.group(0)
-        user = yield self.application.redis.get_token(token_id)
-        if not user:
+        project = yield self.application.redis.get_token(token_id)
+        if not project:
             return None
-        return user
+        return project
 
     def get_current_user(self):
         result = self.get_user_from_cookie()
