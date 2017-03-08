@@ -35,7 +35,7 @@ class AsyncMongoMockCollection(mongomock.collection.Collection):
         return self.futurize(result)
 
     def delete_one(self, filter, collation=None):
-        result = super(AsyncMongoMockCollection, self).delete_one(filter, collation)
+        result = super(AsyncMongoMockCollection, self).delete_one(filter)
         return self.futurize(result)
 
 

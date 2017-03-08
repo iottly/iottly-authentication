@@ -7,22 +7,23 @@ import tornado.ioloop
 
 from cerberus import Validator
 from tornado import gen, web, autoreload, template
-from tornadomail.backends.smtp import EmailBackend
-#from tornadomail.messages import EmailFromTemplate
+from tornado.httputil import url_concat
+from tornado_smtpclient.client import SMTPAsync
 
 from iottly_authentication import db, sessions, validation
 from iottly_authentication.decorators import user_authenticated
 from iottly_authentication.hashers import make_password, check_password
+from iottly_authentication.mail import MailService, MockSMTPAsync
 from iottly_authentication.settings import settings
 
+
 logging.getLogger().setLevel(logging.INFO)
+
 
 TOKEN_RE = re.compile(r'bearer (.{32})$', re.IGNORECASE)
 
 EMAIL_TEMPLATES = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'mail')
 
-# TODO:
-# mandare email da template
 
 class ApiHandler(web.RequestHandler):
     def prepare(self):
@@ -89,6 +90,29 @@ class ApiHandler(web.RequestHandler):
 
 class RegistrationHandler(ApiHandler):
     @gen.coroutine
+    def send_confirm_email(self, token, user):
+        app = self.application
+        confirm_url = url_concat('{}/auth/register'.format(app.settings['AUTH_PUBLIC_URL']), {
+            'email': user['email'],
+            'registration_token': token,
+        })
+        params = {
+            'username': user['username'],
+            'name': user['full_name'],
+            'confirm_url': confirm_url
+        }
+        subject = app.template_loader.load('confirm_registration_subject.txt').generate(**params)
+        rendered_html = app.template_loader.load('confirm_registration.html').generate(**params)
+        rendered_txt = app.template_loader.load('confirm_registration.txt').generate(**params)
+        yield app.mail.send(
+            from_address=app.settings['FROM_EMAIL'],
+            to=[user['email']],
+            subject=subject,
+            text=rendered_txt,
+            html=rendered_html,
+        )
+
+    @gen.coroutine
     def post(self):
         v = Validator(validation.USER_REGISTRATION)
         if not v.validate(self.json_args):
@@ -110,21 +134,15 @@ class RegistrationHandler(ApiHandler):
             self.json_error(500, {'error': 'Internal Server Error'})
             return
 
-        # FIXME: send email confirmation url
-        """
-        subject = # render template
-        template = 'path al template?'
-        message = EmailFromTemplate(
-            subject,
-            template,
-            from_email=self.application.settings['FROM_EMAIL'],
-            to=[],
-            connection=self.application.mail
-        )
-        """
+        yield self.send_confirm_email(token, data)
 
         self.set_status(201)
         self.write(json.dumps({}))
+
+    @gen.coroutine
+    def activate_user(self, email, registration_token):
+        yield self.application.db.update('users', {'email': email}, {'active': True})
+        yield self.application.redis.clear_registration_token(registration_token)
 
     @gen.coroutine
     def get(self):
@@ -154,12 +172,43 @@ class RegistrationHandler(ApiHandler):
             self.json_error(400, {'error': 'Invalid Request'})
             return
 
-        user = yield self.application.db.update('users', {'email': data['email']}, {'active': True})
-
-        yield self.application.redis.clear_registration_token(data['registration_token'])
+        yield self.activate_user(data['email'], data['registration_token'])
 
         self.set_status(200)
+        self.write(json.dumps({'registration_token': data['registration_token']}))
+
+class Registration2StepsHandler(RegistrationHandler):
+    @gen.coroutine
+    def post(self):
+        v = Validator(validation.USER_REGISTRATION_TWO_STEPS)
+        if not v.validate(self.json_args):
+            self.json_error(400, v.errors)
+            return
+
+        data = self.json_args.copy()
+        data['password'] = ''
+        data['active'] = False
+        try:
+            yield self.application.db.insert('users', data)
+        except db.errors.DuplicateKeyError:
+            self.json_error(409, {'error': 'Invalid username / email'})
+            return
+
+        try:
+            token = yield self.application.redis.create_registration_token(data['email'])
+        except sessions.RegistrationTokenCreationError:
+            self.json_error(500, {'error': 'Internal Server Error'})
+            return
+
+        yield self.send_confirm_email(token, data)
+
+        self.set_status(201)
         self.write(json.dumps({}))
+
+    @gen.coroutine
+    def activate_user(self, email, registration_token):
+        # We don't activate users because they don't have a password set yet
+        pass
 
 
 class LoginHandler(ApiHandler):
@@ -260,6 +309,27 @@ class UserHandler(ApiHandler):
 
 class PasswordResetRequestHandler(ApiHandler):
     @gen.coroutine
+    def send_reset_password_email(self, token, email):
+        app = self.application
+        reset_url = url_concat('{}/auth/password/reset'.format(app.settings['AUTH_PUBLIC_URL']), {
+            'reset_token': token,
+            'email': email,
+        })
+        params = {
+            'reset_url': reset_url
+        }
+        subject = app.template_loader.load('reset_password_subject.txt').generate(**params)
+        rendered_html = app.template_loader.load('reset_password.html').generate(**params)
+        rendered_txt = app.template_loader.load('reset_password.txt').generate(**params)
+        yield app.mail.send(
+            from_address=app.settings['FROM_EMAIL'],
+            to=[email],
+            subject=subject,
+            text=rendered_txt,
+            html=rendered_html,
+        )
+
+    @gen.coroutine
     def post(self):
         v = Validator(validation.PASSWORD_RESET_REQUEST)
         data = self.json_args
@@ -278,7 +348,36 @@ class PasswordResetRequestHandler(ApiHandler):
             self.json_error(500, {'error': 'Internal Server Error'})
             return
 
-        # FIXME: send email confirmation with the token
+        yield self.send_reset_password_email(token_id, data['email'])
+
+        self.set_status(200)
+        self.write(json.dumps({}))
+
+
+class Password2StepsHandler(ApiHandler):
+    @gen.coroutine
+    def post(self, username):
+        v = Validator(validation.PASSWORD_TWO_STEPS_SET)
+        data = self.json_args
+        if not v.validate(data):
+            self.json_error(400, v.errors)
+            return
+
+        user = yield self.application.db.get('users', {'username': username})
+        if user is None:
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
+
+        email = yield self.application.redis.get_registration_token(data['registration_token'])
+        if not email or email != user['email']:
+            yield self.application.redis.clear_registration_token(data['registration_token'])
+            self.json_error(400, {'error': 'Invalid Request'})
+            return
+
+        yield self.application.redis.clear_registration_token(data['registration_token'])
+
+        password = make_password(data['password'])
+        yield self.application.db.update('users', {'username': username}, {'password': password, 'active': True})
 
         self.set_status(200)
         self.write(json.dumps({}))
@@ -411,10 +510,13 @@ class SessionTestHandler(web.RequestHandler):
 
 class IottlyApplication(web.Application):
     def __init__(self, handlers=None, default_host=None, transforms=None, **settings):
+        public_url = settings['PUBLIC_URL_PATTERN'].format(settings['PUBLIC_HOST'])
         tornado_settings = {
             'cookie_secret': settings['COOKIE_SECRET'],
             'debug': settings['debug'],
             'AUTH_COOKIE_NAME': settings['AUTH_COOKIE_NAME'],
+            'AUTH_PUBLIC_URL': public_url,
+            'FROM_EMAIL': settings['FROM_EMAIL'],
         }
         super(IottlyApplication, self).__init__(handlers, default_host, transforms, **tornado_settings)
         self.db = db.Database(settings)
@@ -424,13 +526,13 @@ class IottlyApplication(web.Application):
             autoconnect=True,
             session_ttl=settings['SESSION_TTL']
         )
-        self.mail = EmailBackend(
-            settings['SMTP_HOST'],
-            settings['SMTP_PORT'],
-            settings['SMTP_USER'],
-            settings['SMTP_PASSWORD'],
-            True,
-            template_loader=template.Loader(EMAIL_TEMPLATES)
+        self.template_loader = template.Loader(EMAIL_TEMPLATES)
+        self.mail = MailService(
+            SMTPAsync if not settings['SMTP_MOCK'] else MockSMTPAsync,
+            host=settings['SMTP_HOST'],
+            port=settings['SMTP_PORT'],
+            user=settings['SMTP_USER'],
+            password=settings['SMTP_PASSWORD']
         )
 
 def shutdown():
@@ -446,8 +548,10 @@ def make_app():
         (r'/auth/password/reset$', PasswordResetHandler),
         (r'/auth/password/reset/request$', PasswordResetRequestHandler),
         (r'/auth/register$', RegistrationHandler),
+        (r'/auth/register2$', Registration2StepsHandler),
         (r'/auth/users/([\w_\+\.\-]+)$', UserHandler),
         (r'/auth/users/([\w_\+\.\-]+)/password/update$', PasswordUpdateHandler),
+        (r'/auth/users/([\w_\+\.\-]+)/password/set$', Password2StepsHandler),
         (r'/projects/token$', TokenCreateHandler),
         (r'/projects/([\w_\+\.\-]+)/token/(\w+)$', TokenDeleteHandler),
     ], **app_settings)

@@ -1,0 +1,3 @@
+Hi {{ name }}
+
+{{ confirm_url }}

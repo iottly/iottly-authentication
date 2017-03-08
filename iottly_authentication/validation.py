@@ -9,6 +9,12 @@ USER_REGISTRATION = {
     'password': {'type': 'string', 'minlength': 8, 'maxlength': 50, 'required': True}
 }
 
+USER_REGISTRATION_TWO_STEPS = {
+    'email': {'type': 'string', 'regex': EMAIL_REGEX, 'maxlength': 255, 'required': True},
+    'full_name': {'type': 'string', 'maxlength': 100, 'required': True, 'empty': False},
+    'username': {'type': 'string', 'regex': USERNAME_REGEX, 'maxlength': 24, 'required': True},
+}
+
 USER_REGISTRATION_CONFIRM = {
     'email': {'type': 'string', 'regex': EMAIL_REGEX, 'maxlength': 255, 'required': True},
     'registration_token': {'type': 'string', 'required': True, 'empty': False}
@@ -48,4 +54,9 @@ PASSWORD_RESET = {
 
 PASSWORD_UPDATE = {
     'password': {'type': 'string', 'minlength': 8, 'maxlength': 50, 'required': True, 'empty': False}
+}
+
+PASSWORD_TWO_STEPS_SET = {
+    'password': {'type': 'string', 'minlength': 8, 'maxlength': 50, 'required': True, 'empty': False},
+    'registration_token': {'type': 'string', 'required': True, 'empty': False}
 }

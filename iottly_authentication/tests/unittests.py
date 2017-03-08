@@ -22,12 +22,16 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             'REDIS_PORT': 12345,
             'SESSION_TTL': '10',
             'COOKIE_SECRET': 'secret',
+            'SMTP_MOCK': True,
             'SMTP_HOST': 'localhost',
             'SMTP_PORT': 587,
             'SMTP_USER': None,
             'SMTP_PASSWORD': None,
+            'FROM_EMAIL': 'foo@bar.it',
             'AUTH_COOKIE_NAME': 'testcookie',
             'debug': False,
+            'PUBLIC_HOST': '127.0.0.1',
+            'PUBLIC_URL_PATTERN': 'http://{}',
         }
         return main.IottlyApplication([
             (r'/auth/login$', main.LoginHandler),
@@ -35,8 +39,10 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             (r'/auth/password/reset$', main.PasswordResetHandler),
             (r'/auth/password/reset/request$', main.PasswordResetRequestHandler),
             (r'/auth/register$', main.RegistrationHandler),
+            (r'/auth/register2$', main.Registration2StepsHandler),
             (r'/auth/users/([\w_\+\.\-]+)$', main.UserHandler),
             (r'/auth/users/([\w_\+\.\-]+)/password/update$', main.PasswordUpdateHandler),
+            (r'/auth/users/([\w_\+\.\-]+)/password/set$', main.Password2StepsHandler),
             (r'/projects/token$', main.TokenCreateHandler),
             (r'/projects/([\w_\+\.\-]+)/token/(\w+)$', main.TokenDeleteHandler),
         ], **settings)
@@ -73,8 +79,9 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             'password': 'password'
         }
 
-        session_id = Future()
+        session_id, send = Future(), Future()
         session_id.set_result(self.SESSION_TOKEN)
+        send.set_result(None)
         with mock.patch.object(self._app.redis, 'create_registration_token', return_value=session_id) as create_token:
             response = self.fetch('/auth/register', method='POST', body=json.dumps(data))
         self.assertEqual(response.code, 201)
@@ -97,6 +104,40 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
         })
         with mock.patch.object(self._app.db, 'insert', side_effect=db.errors.DuplicateKeyError('')):
             response = self.fetch('/auth/register', method='POST', body=json.dumps(dup_data))
+        self.assertEqual(response.code, 409)
+
+    def test_user_registration2(self):
+        data = {
+            'email': 'ciccio@pasticcio.it',
+            'full_name': 'Ciccio Pasticcio',
+            'username': 'cicciopasticcio',
+        }
+
+        session_id, send = Future(), Future()
+        session_id.set_result(self.SESSION_TOKEN)
+        send.set_result(None)
+        with mock.patch.object(self._app.redis, 'create_registration_token', return_value=session_id) as create_token:
+            response = self.fetch('/auth/register2', method='POST', body=json.dumps(data))
+        self.assertEqual(response.code, 201)
+        create_token.assert_called_once_with(data['email'])
+
+        # duplicated username
+        dup_data = data.copy()
+        dup_data.update({
+            'email': 'ciccio2@pasticcio.it',
+        })
+        with mock.patch.object(self._app.db, 'insert', side_effect=db.errors.DuplicateKeyError('')):
+            response = self.fetch('/auth/register2', method='POST', body=json.dumps(dup_data))
+        self.assertEqual(response.code, 409)
+        self.assertEqual(response.headers['Content-Type'], 'application/json')
+
+        # duplicated email
+        dup_data = data.copy()
+        dup_data.update({
+            'username': 'cicciopasticcio2',
+        })
+        with mock.patch.object(self._app.db, 'insert', side_effect=db.errors.DuplicateKeyError('')):
+            response = self.fetch('/auth/register2', method='POST', body=json.dumps(dup_data))
         self.assertEqual(response.code, 409)
 
     def test_user_registration_confirm(self):
@@ -300,6 +341,47 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
         }
         with mock.patch.object(main.PasswordUpdateHandler, 'get_current_user', return_value='anotheruser'):
             response = self.fetch('/auth/users/anotheruser/password/update', method='PUT', body=json.dumps(data))
+        self.assertEqual(response.code, 400)
+
+    def test_password_two_steps_set(self):
+        db = self.get_db()
+        self.insert_valid_user(db)
+
+        data = {
+            'password': 'newpassword',
+            'registration_token': self.SESSION_TOKEN
+        }
+        email, clear = Future(), Future()
+        email.set_result('ciccio@pasticcio.it')
+        clear.set_result(None)
+        with mock.patch.object(self._app.redis, 'get_registration_token', return_value=email):
+            with mock.patch.object(self._app.redis, 'clear_registration_token', return_value=clear) as clear_token:
+                response = self.fetch('/auth/users/cicciopasticcio/password/set', method='POST', body=json.dumps(data))
+        self.assertEqual(response.code, 200)
+        clear_token.assert_called_once_with(data['registration_token'])
+
+    def test_password_two_steps_set_no_user(self):
+        data = {
+            'password': 'newpassword',
+            'registration_token': self.SESSION_TOKEN
+        }
+        response = self.fetch('/auth/users/anotheruser/password/set', method='POST', body=json.dumps(data))
+        self.assertEqual(response.code, 400)
+
+    def test_password_two_steps_invalid_token(self):
+        db = self.get_db()
+        self.insert_valid_user(db)
+
+        data = {
+            'password': 'newpassword',
+            'registration_token': self.SESSION_TOKEN
+        }
+        email, clear = Future(), Future()
+        email.set_result(None)
+        clear.set_result(None)
+        with mock.patch.object(self._app.redis, 'get_registration_token', return_value=email):
+            with mock.patch.object(self._app.redis, 'clear_registration_token', return_value=clear) as clear_token:
+                response = self.fetch('/auth/users/cicciopasticcio/password/set', method='POST', body=json.dumps(data))
         self.assertEqual(response.code, 400)
 
     def test_token_handler_create(self):
