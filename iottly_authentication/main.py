@@ -1,12 +1,14 @@
 import json
 import logging
 import re
+import os.path
 
 import tornado.ioloop
 
 from cerberus import Validator
-from tornado import gen, web, autoreload
+from tornado import gen, web, autoreload, template
 from tornadomail.backends.smtp import EmailBackend
+#from tornadomail.messages import EmailFromTemplate
 
 from iottly_authentication import db, sessions, validation
 from iottly_authentication.decorators import user_authenticated
@@ -17,12 +19,13 @@ logging.getLogger().setLevel(logging.INFO)
 
 TOKEN_RE = re.compile(r'bearer (.{32})$', re.IGNORECASE)
 
+EMAIL_TEMPLATES = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'mail')
+
 # TODO:
-# le coroutine non devono alzare eccezioni
+# mandare email da template
+# decoratore che si va a pigliare l'utente della sessione per controllare che il token sia valido
 
 class ApiHandler(web.RequestHandler):
-    COOKIE_NAME = 'iottly-session-id'
-
     def prepare(self):
         if self.request.method not in ('GET', 'DELETE'):
             content_type = self.request.headers.get('Content-Type')
@@ -49,7 +52,7 @@ class ApiHandler(web.RequestHandler):
 
     @gen.coroutine
     def get_user_from_cookie(self):
-        session_id = self.get_secure_cookie(self.COOKIE_NAME)
+        session_id = self.get_session_from_cookie()
         if not session_id:
             return None
         session_id = session_id.decode('utf-8')
@@ -58,8 +61,13 @@ class ApiHandler(web.RequestHandler):
             return None
         return user
 
+    def get_session_from_cookie(self):
+        cookie_name = self.application.settings['AUTH_COOKIE_NAME']
+        return self.get_secure_cookie(cookie_name)
+
     def set_session_cookie(self, session_id):
-        self.set_secure_cookie(self.COOKIE_NAME, session_id)
+        cookie_name = self.application.settings['AUTH_COOKIE_NAME']
+        self.set_secure_cookie(cookie_name, session_id)
 
     @gen.coroutine
     def get_token(self):
@@ -104,6 +112,17 @@ class RegistrationHandler(ApiHandler):
             return
 
         # FIXME: send email confirmation url
+        """
+        subject = # render template
+        template = 'path al template?'
+        message = EmailFromTemplate(
+            subject,
+            template,
+            from_email=self.application.settings['FROM_EMAIL'],
+            to=[],
+            connection=self.application.mail
+        )
+        """
 
         self.set_status(201)
         self.write(json.dumps({}))
@@ -182,14 +201,14 @@ class LoginHandler(ApiHandler):
 
         self.set_session_cookie(session_id)
 
-        self.set_status(200)
+        self.set_status(201)
         self.write(json.dumps({}))
 
 
 class LogoutHandler(ApiHandler):
     @gen.coroutine
     def post(self):
-        session_id = self.get_secure_cookie(self.COOKIE_NAME)
+        session_id = self.get_session_from_cookie()
         if not session_id:
             self.json_error(404, {'error': 'No session found'})
             return
@@ -198,24 +217,6 @@ class LogoutHandler(ApiHandler):
 
         self.set_status(200)
         self.finish()
-
-
-class SessionUserHandler(ApiHandler):
-    @gen.coroutine
-    def post(self):
-        data = self.json_args
-        v = Validator(validation.USER_FROM_SESSION)
-        if not v.validate(data):
-            self.json_error(400, v.errors)
-            return
-
-        user = yield self.application.redis.get_session(data['session_id'])
-        if not user:
-            self.json_error(404, {'error': 'No session found'})
-            return
-
-        self.set_status(200)
-        self.write(json.dumps({'user': user}))
 
 
 class UserHandler(ApiHandler):
@@ -252,7 +253,7 @@ class UserHandler(ApiHandler):
             self.json_error(400, {'error': 'Invalid Request'})
             return
 
-        # FIXME: do actual deletion
+        self.application.db.delete('users', {'username': username})
 
         self.set_status(204)
         self.finish()
@@ -413,7 +414,8 @@ class IottlyApplication(web.Application):
     def __init__(self, handlers=None, default_host=None, transforms=None, **settings):
         tornado_settings = {
             'cookie_secret': settings['COOKIE_SECRET'],
-            'debug': settings['debug']
+            'debug': settings['debug'],
+            'AUTH_COOKIE_NAME': settings['AUTH_COOKIE_NAME'],
         }
         super(IottlyApplication, self).__init__(handlers, default_host, transforms, **tornado_settings)
         self.db = db.Database(settings)
@@ -428,7 +430,8 @@ class IottlyApplication(web.Application):
             settings['SMTP_PORT'],
             settings['SMTP_USER'],
             settings['SMTP_PASSWORD'],
-            True
+            True,
+            template_loader=template.Loader(EMAIL_TEMPLATES)
         )
 
 def shutdown():
@@ -446,7 +449,6 @@ def make_app():
         (r'/auth/register$', RegistrationHandler),
         (r'/auth/users/([\w_\+\.\-]+)$', UserHandler),
         (r'/auth/users/([\w_\+\.\-]+)/password/update$', PasswordUpdateHandler),
-        (r'/user$', SessionUserHandler),
         (r'/projects/token$', TokenCreateHandler),
         (r'/projects/([\w_\+\.\-]+)/token/(\w+)$', TokenDeleteHandler),
     ], **app_settings)

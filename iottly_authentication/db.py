@@ -34,6 +34,10 @@ class AsyncMongoMockCollection(mongomock.collection.Collection):
         result = super(AsyncMongoMockCollection, self).find_one(filter, *args, **kwargs)
         return self.futurize(result)
 
+    def delete_one(self, filter, collation=None):
+        result = super(AsyncMongoMockCollection, self).delete_one(filter, collation)
+        return self.futurize(result)
+
 
 class Database(object):
     def __init__(self, settings):
@@ -57,4 +61,9 @@ class Database(object):
     @gen.coroutine
     def update(self, collection_name, condition, data):
         result = yield self.db[collection_name].update_one(condition, {'$set': data})
+        return result
+
+    @gen.coroutine
+    def delete(self, collection_name, condition):
+        result = yield self.db[collection_name].delete_one(condition)
         return result

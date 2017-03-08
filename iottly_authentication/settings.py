@@ -17,6 +17,8 @@ defaults = dict(
 
     SESSION_TTL = 30 * 24 * 60 * 60,
 
+    AUTH_COOKIE_NAME = 'iottly-session-id',
+
     COOKIE_SECRET = 'iottlycookiesecret',
 
     debug = True,

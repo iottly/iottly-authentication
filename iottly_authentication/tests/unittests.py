@@ -26,6 +26,8 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             'SMTP_PORT': 587,
             'SMTP_USER': None,
             'SMTP_PASSWORD': None,
+            'AUTH_COOKIE_NAME': 'testcookie',
+            'debug': False,
         }
         return main.IottlyApplication([
             (r'/auth/login$', main.LoginHandler),
@@ -35,7 +37,6 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
             (r'/auth/register$', main.RegistrationHandler),
             (r'/auth/users/([\w_\+\.\-]+)$', main.UserHandler),
             (r'/auth/users/([\w_\+\.\-]+)/password/update$', main.PasswordUpdateHandler),
-            (r'/user$', main.SessionUserHandler),
             (r'/projects/token$', main.TokenCreateHandler),
             (r'/projects/([\w_\+\.\-]+)/token/(\w+)$', main.TokenDeleteHandler),
         ], **settings)
@@ -125,7 +126,7 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
         session_id.set_result(self.SESSION_TOKEN)
         with mock.patch.object(self._app.redis, 'create_session', return_value=session_id):
             response = self.fetch('/auth/login', method='POST', body=json.dumps(data))
-        self.assertEqual(response.code, 200)
+        self.assertEqual(response.code, 201)
 
     def test_user_login_already_logged(self):
         db = self.get_db()
@@ -166,31 +167,17 @@ class TestIottlyAuthentication(AsyncHTTPTestCase):
 
     def test_user_logout_unauthenticated(self):
         response = self.fetch('/auth/logout', method='POST', body=json.dumps({}))
-        self.assertEqual(response.code, 200)
+        self.assertEqual(response.code, 404)
 
     def test_user_logout(self):
-        cookie, clear = Future(), Future()
+        clear = Future()
         clear.set_result(True)
-        cookie.set_result(self.SESSION_TOKEN)
+        cookie = self.SESSION_TOKEN.encode('utf-8')
         with mock.patch.object(main.LogoutHandler, 'get_secure_cookie', return_value=cookie):
             with mock.patch.object(self._app.redis, 'clear_session', return_value=clear) as clear_session:
                 response = self.fetch('/auth/logout', method='POST', body=json.dumps({}))
         self.assertEqual(response.code, 200)
-        clear_session.assert_called_once_with(cookie)
-
-    def test_username_from_session(self):
-        no_user, user = Future(), Future()
-        user.set_result('cicciopasticcio')
-        with mock.patch.object(self._app.redis, 'get_session', return_value=user) as get_session:
-            response = self.fetch('/user', method='POST', body=json.dumps({'session_id': self.SESSION_TOKEN}))
-        self.assertEqual(response.code, 200)
-        self.assertIn('cicciopasticcio', response.body.decode('utf-8'))
-        get_session.assert_called_once_with(self.SESSION_TOKEN)
-
-        no_user.set_result(None)
-        with mock.patch.object(self._app.redis, 'get_session', return_value=no_user):
-            response = self.fetch('/user', method='POST', body=json.dumps({'session_id': self.SESSION_TOKEN}))
-        self.assertEqual(response.code, 404)
+        clear_session.assert_called_once_with(self.SESSION_TOKEN)
 
     def test_update_user_data(self):
         db = self.get_db()
