@@ -32,6 +32,7 @@ class MailService:
         yield client.connect(self.host, self.port)
         yield client.ehlo()
         yield client.starttls()
+        yield client.ehlo()
         yield client.login(self.user, self.password)
 
         msg = email(from_address, to, subject, text, html)
